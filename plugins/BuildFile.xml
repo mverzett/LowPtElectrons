@@ -1,0 +1,29 @@
+<use name="FWCore/Framework"/>
+<use name="FWCore/MessageLogger"/>
+<use name="FWCore/PluginManager"/>
+<use name="FWCore/ParameterSet"/>
+<use name="FWCore/ParameterSet"/>
+<use name="FWCore/Common"/>
+<use name="FWCore/ServiceRegistry"/>
+
+<use name="CommonTools/UtilAlgos"/>
+
+<use name="DataFormats/TrackReco"/>
+<use name="DataFormats/EgammaCandidates"/>
+<use name="DataFormats/Common"/>
+<use name="DataFormats/HLTReco"/>
+
+<use name="MagneticField/Engine"/>
+<use name="MagneticField/Records"/>
+<use name="MagneticField/ParametrizedEngine"/>
+
+<use name="TrackingTools/TransientTrack"/>
+<use name="RecoVertex/KalmanVertexFit"/>
+<use name="TrackingTools/Records"/>
+
+<use name="root"/>
+
+<flags CXXFLAGS="-g"/>  
+<library file="*.cc" name="CMGToolsLowPtElectronsPlugins">
+  <flags   EDM_PLUGIN="1"/>
+</library>
