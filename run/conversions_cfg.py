@@ -58,8 +58,8 @@ process.maxEvents = cms.untracked.PSet( input = cms.untracked.int32(options.maxE
 process.source = cms.Source(
    "PoolSource",
    fileNames = cms.untracked.vstring(
-      #chunks[options.ichunk]
-      'file:/afs/cern.ch/work/m/mverzett/public/AOD_300Evts.root'
+      chunks[options.ichunk]
+      #'file:/afs/cern.ch/work/m/mverzett/public/AOD_300Evts.root'
       ),
    )
 
@@ -80,7 +80,7 @@ setupEgammaPostRecoSeq(
 
 process.ntuples = cms.EDAnalyzer(
    'ConversionsNtuples',
-   tracks = cms.InputTag('generalTracks'),
+   tracks = cms.InputTag('conversionStepTracks'), #generalTracks'),
    electrons = cms.InputTag('gedGsfElectrons'),
    electronTracks = cms.InputTag('electronGsfTracks'),
    eid = cms.InputTag('egmGsfElectronIDs', 'mvaEleID-Fall17-noIso-V1-wp90'),

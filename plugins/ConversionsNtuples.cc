@@ -55,7 +55,7 @@ protected:
 	const edm::EDGetTokenT< edm::ValueMap<bool> > eid_tok_;
 	const edm::EDGetTokenT< edm::TriggerResults > trig_tok_;
 	const edm::EDGetTokenT< trigger::TriggerEvent > trig_evt_tok_;
-	//const edm::EDGetTokenT< > tracks_tok_;
+	//const edm::EDGetTokenT< > tracks_tok_;	
 
 	//vertex fitter
 	KalmanVertexFitter fitter_;
@@ -87,6 +87,7 @@ protected:
 	float b_vtx_chi2_ = -1.;
 	float b_vtx_mass_ = -10.;
 	float b_vtx_dtheta_ = -10.;
+	float b_vtx_r_ = -1;
 
 	float b_trk_pt_ = -1.;
 	float b_trk_eta_ = -10.;
@@ -117,13 +118,14 @@ ConversionsNtuples::ConversionsNtuples(const edm::ParameterSet& cfg):
   tree_->Branch("lumi", &b_lumi_, "lumi/i");
   tree_->Branch("evt",  &b_evt_, "evt/i");
 
-	tree_->Branch("nele"   , &b_nele_   , "nele/f");
+	tree_->Branch("nele"   , &b_nele_   , "nele/i");
 	tree_->Branch("ele_pt" , &b_ele_pt_ , "ele_pt/f");
 	tree_->Branch("ele_eta", &b_ele_eta_, "ele_eta/f");
 
 	tree_->Branch("vtx_chi2",	  &b_vtx_chi2_	, "vtx_chi2/f"	);
 	tree_->Branch("vtx_mass",	  &b_vtx_mass_	, "vtx_mass/f"	);
 	tree_->Branch("vtx_dtheta", &b_vtx_dtheta_, "vtx_dtheta/f");
+	tree_->Branch("vtx_r", &b_vtx_r_, "b_vtx_r/f");
 
 	tree_->Branch("trk_pt",		  &b_trk_pt_		, "trk_pt/f"		);
 	tree_->Branch("trk_eta",    &b_trk_eta_   , "trk_eta/f"   );
@@ -139,6 +141,7 @@ void ConversionsNtuples::analyze(const edm::Event& iEvent, const edm::EventSetup
 
 	edm::Handle< std::vector<reco::Track> > tracks;
 	iEvent.getByToken(tracks_tok_, tracks);
+	//cout << "# tracks " << tracks->size() << endl;
 
 	edm::Handle< std::vector<reco::GsfElectron> > electrons;
 	iEvent.getByToken(electrons_tok_, electrons);
@@ -204,7 +207,7 @@ void ConversionsNtuples::analyze(const edm::Event& iEvent, const edm::EventSetup
 
 	for(auto& ele : selected_electrons) {
 		b_ele_pt_ = ele->pt();
-		b_ele_eta_= ele->pt();
+		b_ele_eta_= ele->eta();
 
 		b_vtx_chi2_	  = 999;
 		b_vtx_mass_	  = 999;
@@ -225,6 +228,10 @@ void ConversionsNtuples::analyze(const edm::Event& iEvent, const edm::EventSetup
 				b_vtx_chi2_ = vtx.normalisedChiSquared();
 				b_vtx_mass_ = mass;
 				b_vtx_dtheta_ = dtheta;
+				b_vtx_r_ = vtx.position().transverse();
+				//cout << b_vtx_r_ << " = " << vtx.position().perp() << " = " << vtx.position().transverse() << endl;
+				b_trk_pt_	 = trk->pt();
+				b_trk_eta_ = trk->eta();
 			}
 		}
 
