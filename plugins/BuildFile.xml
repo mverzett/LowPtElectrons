@@ -20,6 +20,7 @@
 <use name="TrackingTools/TransientTrack"/>
 <use name="RecoVertex/KalmanVertexFit"/>
 <use name="TrackingTools/Records"/>
+<use name="DataFormats/Math"/>
 
 <use name="root"/>
 
