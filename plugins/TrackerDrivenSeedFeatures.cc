@@ -40,6 +40,10 @@
 #include "MagneticField/Records/interface/IdealMagneticFieldRecord.h"
 
 #include "DataFormats/Math/interface/deltaR.h"
+#include "TMVA/MethodBDT.h"
+#include "TMVA/Reader.h"
+#include "CondFormats/EgammaObjects/interface/GBRForest.h"
+#include "DataFormats/TrackReco/interface/TrackFwd.h"
 
 #include <fstream>
 #include <string>
@@ -51,6 +55,7 @@
 using namespace edm;
 using namespace std;
 using namespace reco;
+constexpr size_t kMaxWeights=9;
 
 class TrackerDrivenSeedFeatures: public edm::EDAnalyzer {
   typedef TrajectoryStateOnSurface TSOS;
@@ -65,15 +70,20 @@ public:
 	}
 
 	struct Features { 
-		int nhits = -1;
+		float nhits = -1;
+		int ibin = -1;
 		int high_purity = 0;
 		bool trk_ecal_match = false;
+		float dxy = -1;
+		float dxy_err = -1;
+		float bdtout = -1.;
 		float trk_pt = -1.;
 		float trk_inp = -1.;
 		float trk_outp = -1.;
-		float trk_abseta = -1.;
+		float trk_eta = -1.;
 		float trk_ecal_Deta = -1.;
 		float trk_ecal_Dphi = -1.;
+		float trk_ecal_AbsDphi = -1.;
 		float e_over_p = -1.;
 		float trk_chi2red = -1.;
 
@@ -89,13 +99,18 @@ public:
 		
 		void reset() {
 			nhits = -1;
+			ibin = -1;
 			high_purity = 0;
 			trk_ecal_match = false;
+			dxy = -1;
+			dxy_err = -1;
+			bdtout = -1.;
 			trk_pt = -1.;
 			trk_inp = -1.;
 			trk_outp = -1.;
-			trk_abseta = -1.;
+			trk_eta = -1.;
 			trk_ecal_Deta = -1.;
+			trk_ecal_AbsDphi = -1.;
 			trk_ecal_Dphi = -1.;
 			e_over_p = -1.;
 			trk_chi2red = -1.;
@@ -116,6 +131,21 @@ private:
 	virtual void beginRun(const edm::Run & run,const edm::EventSetup&);
 	virtual void analyze(const edm::Event&, const edm::EventSetup&);
 		
+	int getBin(float eta, float pt) {
+		  int ie=0;
+			int ip=0;
+			if (fabs(eta)<0.8) ie=0;
+			else{ if (fabs(eta)<1.479) ie=1;
+				else ie=2;
+			}
+			if (pt<6) ip=0;
+			else {  if (pt<12) ip=1;     
+				else ip=2;
+			}
+			int iep= ie*3+ip;
+			LogDebug("GoodSeedProducer")<<"Track pt ="<<pt<<" eta="<<eta<<" bin="<<iep;
+			return iep;
+	}
 	// ----------member data ---------------------------
 
 	Features trk_features_;
@@ -141,7 +171,7 @@ private:
 
 	// ----------access to event data
 	edm::EDGetTokenT<reco::PFClusterCollection> pfCLusTagECLabel_;
-	edm::EDGetTokenT<reco::TrackCollection > tracks_;
+	edm::EDGetTokenT<reco::TrackRefVector > tracks_;
 	edm::EDGetTokenT< std::vector<Trajectory> > trajectories_;
 
 	std::string fitterName_;
@@ -157,6 +187,7 @@ private:
 	TFile *file_ = 0;
 	TTree *tree_ = 0;
 	TH1D *pt_hist_;
+	std::array<std::unique_ptr<const GBRForest>,kMaxWeights> gbrs_;    
 };
 
 TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig):
@@ -170,7 +201,7 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
   minEp_{iConfig.getParameter<double>("MinEOverP")},
   maxEp_{iConfig.getParameter<double>("MaxEOverP")},
   pfCLusTagECLabel_{consumes<reco::PFClusterCollection>(iConfig.getParameter<InputTag>("PFEcalClusterLabel"))},
-	tracks_{consumes<reco::TrackCollection>(iConfig.getParameter<edm::InputTag>("tracks"))},
+	tracks_{consumes<reco::TrackRefVector>(iConfig.getParameter<edm::InputTag>("tracks"))},
 	trajectories_{consumes< std::vector<Trajectory> >(iConfig.getParameter<edm::InputTag>("tracks"))},	
   fitterName_  {iConfig.getParameter<string>("Fitter")  },
   smootherName_{iConfig.getParameter<string>("Smoother")},
@@ -188,13 +219,15 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
 	//book branches
 	//tree_->Branch("run",  &b_run_, "run/i");
 
-	tree_->Branch("nhits",					&trk_features_.nhits         , "nhits/I");
+	tree_->Branch("nhits",					&trk_features_.nhits         , "nhits/f");
+	tree_->Branch("ibin", 					&trk_features_.ibin         , "ibin/I");
 	tree_->Branch("high_purity",		&trk_features_.high_purity	 , "high_purity/i");
 	tree_->Branch("trk_ecal_match", &trk_features_.trk_ecal_match, "trk_ecal_match/O");
+	tree_->Branch("bdtout",				 	&trk_features_.bdtout				 , "bdtout/f");
 	tree_->Branch("trk_pt",				 	&trk_features_.trk_pt				 , "trk_pt/f");
 	tree_->Branch("trk_inp",  			&trk_features_.trk_inp  		 , "trk_inp/f");
 	tree_->Branch("trk_outp",	  		&trk_features_.trk_outp	  	 , "trk_outp/f");
-	tree_->Branch("trk_abseta",		 	&trk_features_.trk_abseta		 , "trk_abseta/f");
+	tree_->Branch("trk_eta",		 	  &trk_features_.trk_eta		 , "trk_eta/f");
 	tree_->Branch("trk_ecal_Deta",	&trk_features_.trk_ecal_Deta , "trk_ecal_Deta/f");
 	tree_->Branch("trk_ecal_Dphi",	&trk_features_.trk_ecal_Dphi , "trk_ecal_Dphi/f");
 	tree_->Branch("e_over_p",			 	&trk_features_.e_over_p			 , "e_over_p/f");
@@ -212,6 +245,37 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
 	tree_->Branch("gsf_dpt"					, &trk_features_.gsf_dpt				 , "gsf_dpt/f");					
 	tree_->Branch("trk_gsf_chiratio", &trk_features_.trk_gsf_chiratio, "trk_gsf_chiratio/f");
 	tree_->Branch("gsf_chi2red"     , &trk_features_.gsf_chi2red     , "gsf_chi2red/f");     
+
+	const std::string method = iConfig.getParameter<string>("TMVAMethod");
+	std::array<edm::FileInPath,kMaxWeights> weights = {{ 
+			edm::FileInPath(iConfig.getParameter<string>("Weights1")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights2")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights3")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights4")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights5")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights6")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights7")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights8")),
+			edm::FileInPath(iConfig.getParameter<string>("Weights9")) }};
+            
+	for(UInt_t j = 0; j < gbrs_.size(); ++j){
+		TMVA::Reader reader("!Color:Silent");
+		
+		reader.AddVariable("NHits", &trk_features_.nhits);
+		reader.AddVariable("NormChi", &trk_features_.trk_chi2red);
+		reader.AddVariable("dPtGSF", &trk_features_.gsf_dpt);
+		reader.AddVariable("EoP", &trk_features_.e_over_p);
+		reader.AddVariable("ChiRatio", &trk_features_.trk_gsf_chiratio);
+		reader.AddVariable("RedChi", &trk_features_.gsf_chi2red);
+		reader.AddVariable("EcalDEta", &trk_features_.trk_ecal_Deta);
+		reader.AddVariable("EcalDPhi", &trk_features_.trk_ecal_AbsDphi);
+		reader.AddVariable("pt", &trk_features_.trk_pt);
+		reader.AddVariable("eta", &trk_features_.trk_eta);
+    
+		reader.BookMVA(method, weights[j].fullPath().c_str());
+    
+		gbrs_[j].reset( new GBRForest( dynamic_cast<TMVA::MethodBDT*>( reader.FindMVA(method) ) ) );
+	}
 }
 
 
@@ -256,9 +320,9 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
   //Vector of track collections
 	size_t ntrks = 0;
 	//Track collection
-	Handle<TrackCollection> tkRefCollection;
+	Handle<reco::TrackRefVector> tkRefCollection;
 	iEvent.getByToken(tracks_, tkRefCollection);
-	const TrackCollection&  Tk=*(tkRefCollection.product());
+	const TrackRefVector&  Tk=*(tkRefCollection.product());
 
 	// edm::Handle< std::vector<Trajectory> > trajectories;  
 	// iEvent.getByToken(trajectories_, trajectories);	
@@ -268,12 +332,12 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 	cout << "Starting from " << Tk.size() << " tracks! " << endl;
 	for(unsigned int i=0;i<Tk.size();++i){		
       
-		TrackRef trackRef(tkRefCollection, i);
+		const TrackRef& trackRef = tkRefCollection.at(i);
 		//Trajectory const * trajectory = &(*trajectories)[i];
 
 		math::XYZVectorF tkmom(Tk[i].momentum());
-		auto tketa= Tk[i].eta();
-		auto tkpt = Tk[i].pt();
+		auto tketa= Tk[i]->eta();
+		auto tkpt = Tk[i]->pt();
 		auto const & Seed=(*trackRef->seedRef());
 
 		pt_hist_->Fill((tkpt > 100) ? 99.9 : tkpt);
@@ -281,7 +345,7 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 		ntrks++;
 		//cout << "pt: " << tkpt <<endl;
 		//cout << "P: " << tkmom.mag2() << ", p(in): " << Tk[i].innerMomentum().mag2() << ", p(out): " << Tk[i].outerMomentum().mag2() << endl;
-v
+
 		// const auto& measurements = trajectory->measurements();
 		// for(auto& measurement : measurements) {
 		// 	trk_features_.trk_momenta.push_back(
@@ -382,15 +446,17 @@ v
 		float trk_ecalDphi = totphi;
 			
 		trk_features_.nhits = nhitpi;
+		trk_features_.ibin = getBin(Tk[i].eta(),Tk[i].pt());
 		trk_features_.high_purity = Tk[i].quality(
 			TrackBase::qualityByName("highPurity"));
 		trk_features_.trk_ecal_match = (toteta < 10.f);
 		trk_features_.trk_pt = tkpt;
 		trk_features_.trk_outp = sqrt(Tk[i].outerMomentum().mag2());
 		trk_features_.trk_inp = sqrt(Tk[i].innerMomentum().mag2());
-		trk_features_.trk_abseta = fabs(tketa);
+		trk_features_.trk_eta = tketa;
 		trk_features_.trk_ecal_Deta = trk_ecalDeta;
 		trk_features_.trk_ecal_Dphi = trk_ecalDphi;
+		trk_features_.trk_ecal_AbsDphi = fabs(trk_ecalDphi);
 		trk_features_.e_over_p = EP;
 		trk_features_.trk_chi2red = nchi;
 
@@ -429,6 +495,23 @@ v
 				trk_features_.gsf_dpt = dpt;
 				trk_features_.trk_gsf_chiratio = chiRatio;
 				trk_features_.gsf_chi2red = chired;
+				
+				float vars[10] = { 
+					trk_features_.nhits,
+					trk_features_.trk_chi2red,
+					trk_features_.gsf_dpt,
+					trk_features_.e_over_p,
+					trk_features_.trk_gsf_chiratio,
+					trk_features_.gsf_chi2red,
+					trk_features_.trk_ecal_Deta,
+					trk_features_.trk_ecal_AbsDphi,
+					trk_features_.trk_pt,
+					trk_features_.trk_eta
+				};
+              
+				trk_features_.bdtout = gbrs_[trk_features_.ibin]->GetClassifier( 
+					vars
+					);
 			}
 		}
 			  
