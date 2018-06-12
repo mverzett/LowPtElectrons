@@ -51,6 +51,7 @@
 #include "TFile.h"
 #include "TTree.h"
 #include "TH1D.h"
+#include "TRandom3.h"
 
 using namespace edm;
 using namespace std;
@@ -168,11 +169,13 @@ private:
 	///Min and MAx allowed values forEoverP
 	double minEp_;
 	double maxEp_;
+	double prescale_;
 
 	// ----------access to event data
-	edm::EDGetTokenT<reco::PFClusterCollection> pfCLusTagECLabel_;
-	edm::EDGetTokenT<reco::TrackRefVector > tracks_;
-	edm::EDGetTokenT< std::vector<Trajectory> > trajectories_;
+	const edm::EDGetTokenT<reco::PFClusterCollection> pfCLusTagECLabel_;
+	const edm::EDGetTokenT<reco::TrackRefVector > tracks_;
+	//const edm::EDGetTokenT< std::vector<Trajectory> > trajectories_;
+	const edm::EDGetTokenT< reco::BeamSpot > beamspot_;
 
 	std::string fitterName_;
 	std::string smootherName_;
@@ -200,9 +203,11 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
 	clusThreshold_{iConfig.getParameter<double>("ClusterThreshold")},
   minEp_{iConfig.getParameter<double>("MinEOverP")},
   maxEp_{iConfig.getParameter<double>("MaxEOverP")},
+	prescale_{1.-iConfig.getParameter<double>("prescale")},
   pfCLusTagECLabel_{consumes<reco::PFClusterCollection>(iConfig.getParameter<InputTag>("PFEcalClusterLabel"))},
 	tracks_{consumes<reco::TrackRefVector>(iConfig.getParameter<edm::InputTag>("tracks"))},
-	trajectories_{consumes< std::vector<Trajectory> >(iConfig.getParameter<edm::InputTag>("tracks"))},	
+	//trajectories_{consumes< std::vector<Trajectory> >(iConfig.getParameter<edm::InputTag>("tracks"))},	
+	beamspot_{consumes<reco::BeamSpot>(iConfig.getParameter<edm::InputTag>("beamspot"))},
   fitterName_  {iConfig.getParameter<string>("Fitter")  },
   smootherName_{iConfig.getParameter<string>("Smoother")},
   trackerRecHitBuilderName_{iConfig.getParameter<std::string>("TTRHBuilder")},
@@ -224,6 +229,8 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
 	tree_->Branch("high_purity",		&trk_features_.high_purity	 , "high_purity/i");
 	tree_->Branch("trk_ecal_match", &trk_features_.trk_ecal_match, "trk_ecal_match/O");
 	tree_->Branch("bdtout",				 	&trk_features_.bdtout				 , "bdtout/f");
+	tree_->Branch("dxy",			  	 	&trk_features_.dxy		  		 , "dxy/f");
+	tree_->Branch("dxy_err",			 	&trk_features_.dxy_err			 , "dxy_err/f");
 	tree_->Branch("trk_pt",				 	&trk_features_.trk_pt				 , "trk_pt/f");
 	tree_->Branch("trk_inp",  			&trk_features_.trk_inp  		 , "trk_inp/f");
 	tree_->Branch("trk_outp",	  		&trk_features_.trk_outp	  	 , "trk_outp/f");
@@ -312,6 +319,9 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
   Handle<PFClusterCollection> theECPfClustCollection;
   iEvent.getByToken(pfCLusTagECLabel_,theECPfClustCollection);  
 
+	edm::Handle<reco::BeamSpot> beam_spot;
+	iEvent.getByToken(beamspot_, beam_spot);
+
 	vector<PFCluster const *> basClus;
   for ( auto const & klus : *theECPfClustCollection.product() ) {
     if(klus.correctedEnergy()>clusThreshold_) basClus.push_back(&klus);
@@ -322,29 +332,30 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 	//Track collection
 	Handle<reco::TrackRefVector> tkRefCollection;
 	iEvent.getByToken(tracks_, tkRefCollection);
-	const TrackRefVector&  Tk=*(tkRefCollection.product());
+	//const TrackRefVector&  Tk=*(tkRefCollection.product());
 
 	// edm::Handle< std::vector<Trajectory> > trajectories;  
 	// iEvent.getByToken(trajectories_, trajectories);	
 	// assert(tkRefCollection->size() == trajectories->size());
 
 	//loop over the track collection
-	cout << "Starting from " << Tk.size() << " tracks! " << endl;
-	for(unsigned int i=0;i<Tk.size();++i){		
+	//cout << "Starting from " << tkRefCollection->size() << " tracks! " << endl;
+	for(const auto& trackRef : *tkRefCollection) {
       
-		const TrackRef& trackRef = tkRefCollection.at(i);
+		//const TrackRef& trackRef = tkRefCollection.at(i);
 		//Trajectory const * trajectory = &(*trajectories)[i];
 
-		math::XYZVectorF tkmom(Tk[i].momentum());
-		auto tketa= Tk[i]->eta();
-		auto tkpt = Tk[i]->pt();
+		math::XYZVectorF tkmom(trackRef->momentum());
+		auto tketa= trackRef->eta();
+		auto tkpt = trackRef->pt();
 		auto const & Seed=(*trackRef->seedRef());
 
 		pt_hist_->Fill((tkpt > 100) ? 99.9 : tkpt);
 		if (tkpt>maxPt_ || tkpt<minPt_) continue;			
+		if(gRandom->Rndm() < prescale_) continue;
 		ntrks++;
 		//cout << "pt: " << tkpt <<endl;
-		//cout << "P: " << tkmom.mag2() << ", p(in): " << Tk[i].innerMomentum().mag2() << ", p(out): " << Tk[i].outerMomentum().mag2() << endl;
+		//cout << "P: " << tkmom.mag2() << ", p(in): " << trackRef->innerMomentum().mag2() << ", p(out): " << trackRef->outerMomentum().mag2() << endl;
 
 		// const auto& measurements = trajectory->measurements();
 		// for(auto& measurement : measurements) {
@@ -353,31 +364,31 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 		// 		);
 		// }
 
-		float oPTOB=1.f/std::sqrt(Tk[i].innerMomentum().mag2()); // FIXME the original code was buggy should be outerMomentum...
-		float nchi=Tk[i].normalizedChi2();
+		float oPTOB=1.f/std::sqrt(trackRef->innerMomentum().mag2()); // FIXME the original code was buggy should be outerMomentum...
+		float nchi=trackRef->normalizedChi2();
 
-		int nhitpi=Tk[i].found();
+		int nhitpi=trackRef->found();
 		float EP=0;
       
 		//CLUSTERS - TRACK matching
       
 		auto pfmass=  0.0005;
-		auto pfoutenergy=sqrt((pfmass*pfmass)+Tk[i].outerMomentum().Mag2());
+		auto pfoutenergy=sqrt((pfmass*pfmass)+trackRef->outerMomentum().Mag2());
 
 		XYZTLorentzVector mom =XYZTLorentzVector(
-			Tk[i].outerMomentum().x(),
-			Tk[i].outerMomentum().y(),
-			Tk[i].outerMomentum().z(),
+			trackRef->outerMomentum().x(),
+			trackRef->outerMomentum().y(),
+			trackRef->outerMomentum().z(),
 			pfoutenergy);
 		XYZTLorentzVector pos =   XYZTLorentzVector(
-			Tk[i].outerPosition().x(),
-			Tk[i].outerPosition().y(),
-			Tk[i].outerPosition().z(),
+			trackRef->outerPosition().x(),
+			trackRef->outerPosition().y(),
+			trackRef->outerPosition().z(),
 			0.);
 
 		BaseParticlePropagator theOutParticle( RawParticle(mom,pos),
 																					 0,0,B_.z());
-		theOutParticle.setCharge(Tk[i].charge());
+		theOutParticle.setCharge(trackRef->charge());
       
 		theOutParticle.propagateToEcalEntrance(false);
       
@@ -420,7 +431,7 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 	     
 
 				float tmp_phi = deltaPhi(aClus->positionREP().phi(), phirec); 
-				tmp_phi *= Tk[i].charge();
+				tmp_phi *= trackRef->charge();
 	      
 				float tmp_dr=std::sqrt(std::pow(tmp_phi,2.f)+
 															 std::pow(aClus->positionREP().eta()-etarec,2.f));
@@ -446,13 +457,15 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 		float trk_ecalDphi = totphi;
 			
 		trk_features_.nhits = nhitpi;
-		trk_features_.ibin = getBin(Tk[i].eta(),Tk[i].pt());
-		trk_features_.high_purity = Tk[i].quality(
+		trk_features_.ibin = getBin(trackRef->eta(),trackRef->pt());
+		trk_features_.high_purity = trackRef->quality(
 			TrackBase::qualityByName("highPurity"));
+		trk_features_.dxy		  = trackRef->dxy(*beam_spot);
+		trk_features_.dxy_err	= trackRef->dxyError();
 		trk_features_.trk_ecal_match = (toteta < 10.f);
 		trk_features_.trk_pt = tkpt;
-		trk_features_.trk_outp = sqrt(Tk[i].outerMomentum().mag2());
-		trk_features_.trk_inp = sqrt(Tk[i].innerMomentum().mag2());
+		trk_features_.trk_outp = sqrt(trackRef->outerMomentum().mag2());
+		trk_features_.trk_inp = sqrt(trackRef->innerMomentum().mag2());
 		trk_features_.trk_eta = tketa;
 		trk_features_.trk_ecal_Deta = trk_ecalDeta;
 		trk_features_.trk_ecal_Dphi = trk_ecalDphi;
@@ -465,15 +478,15 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 		float dpt=0;
 
 		Trajectory::ConstRecHitContainer tmp;
-		auto hb = Tk[i].recHitsBegin();
-		for(unsigned int h=0;h<Tk[i].recHitsSize();h++){
+		auto hb = trackRef->recHitsBegin();
+		for(unsigned int h=0;h<trackRef->recHitsSize();h++){
 			auto recHit = *(hb+h); tmp.push_back(recHit->cloneSH());
 		}
-		auto const & theTrack = Tk[i]; 
-		GlobalVector gv(theTrack.innerMomentum().x(),theTrack.innerMomentum().y(),theTrack.innerMomentum().z());
-		GlobalPoint  gp(theTrack.innerPosition().x(),theTrack.innerPosition().y(),theTrack.innerPosition().z());
-		GlobalTrajectoryParameters gtps(gp,gv,theTrack.charge(),&*magneticField);
-		TrajectoryStateOnSurface tsos(gtps,theTrack.innerStateCovariance(),*tmp[0]->surface());
+
+		GlobalVector gv(trackRef->innerMomentum().x(),trackRef->innerMomentum().y(),trackRef->innerMomentum().z());
+		GlobalPoint  gp(trackRef->innerPosition().x(),trackRef->innerPosition().y(),trackRef->innerPosition().z());
+		GlobalTrajectoryParameters gtps(gp,gv,trackRef->charge(),&*magneticField);
+		TrajectoryStateOnSurface tsos(gtps,trackRef->innerStateCovariance(),*tmp[0]->surface());
 		Trajectory  && FitTjs= fitter_->fitOne(Seed,tmp,tsos);
 	
 		if(FitTjs.isValid()){
@@ -488,7 +501,7 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 					updatedState().globalMomentum().perp();
 				dpt=(pt_in>0) ? fabs(pt_out-pt_in)/pt_in : 0.;
 				// the following is simply the number of degrees of freedom
-				chiRatio=SmooTjs.chiSquared()/Tk[i].chi2();
+				chiRatio=SmooTjs.chiSquared()/trackRef->chi2();
 				chired=chiRatio*nchi;
 
 				trk_features_.gsf_success = true;
@@ -517,7 +530,7 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 			  
 		tree_->Fill();
 	} //end loop on track collection
-	cout << "processed " << ntrks << " tracks! " << endl;
+	//cout << "processed " << ntrks << " tracks! " << endl;
   
 }
 

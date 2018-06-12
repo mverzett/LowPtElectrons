@@ -3,6 +3,42 @@
 # Revision: 1.19 
 # Source: /local/reps/CMSSW/CMSSW/Configuration/Applications/python/ConfigBuilder.py,v 
 # with command line options: RECOWithDQM -s RAW2DIGI,L1Reco,RECO --datatier RECO --runUnscheduled --nThreads 4 --data --era Run2_2017 --scenario pp --conditions 94X_dataRun2_PromptLike_v9 --eventcontent RECO --filein file:/afs/cern.ch/work/m/mverzett/public/RAW-RECO_ZElectron-94X_dataRun2_PromptLike_v5_RelVal_doubEG2017B-v1.root --no_exec
+from FWCore.ParameterSet.VarParsing import VarParsing
+options = VarParsing ('python')
+options.register('outname', 'track_features.root',
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.string,
+    "Output file name"
+)
+options.register('ichunk', 0,
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.int,
+    ""
+)
+options.register('nchunks', 1,
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.int,
+    ""
+)
+options.register('data', 'RAWTest',
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.string,
+    ""
+)
+options.setDefault('maxEvents', -1)
+options.parseArguments()
+
+from CMGTools.LowPtElectrons.samples import all_samples
+#split into even chunks
+input_files = all_samples[options.data]
+n = len(input_files)/options.nchunks
+chunks = [input_files[i:i + n] for i in xrange(0, len(input_files), n)]
+leftovers = sum(chunks[options.nchunks:], [])
+chunks = chunks[:options.nchunks]
+for i in range(len(leftovers)):
+   chunks[i].append(leftovers[i])
+
+
 import FWCore.ParameterSet.Config as cms
 
 from Configuration.StandardSequences.Eras import eras
@@ -19,17 +55,16 @@ process.load('Configuration.StandardSequences.MagneticField_AutoFromDBCurrent_cf
 process.load('Configuration.StandardSequences.RawToDigi_Data_cff')
 process.load('Configuration.StandardSequences.L1Reco_cff')
 process.load('Configuration.StandardSequences.Reconstruction_Data_cff')
-process.load('Configuration.StandardSequences.EndOfProcess_cff')
 process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_cff')
 
 process.maxEvents = cms.untracked.PSet(
-    input = cms.untracked.int32(100)
+    input = cms.untracked.int32(options.maxEvents)
 )
 
 # Input source
 process.source = cms.Source("PoolSource",
     fileNames = cms.untracked.vstring(
-      'file:/afs/cern.ch/work/m/mverzett/public/RAW-RECO_ZElectron-94X_dataRun2_PromptLike_v5_RelVal_doubEG2017B-v1.root'
+      chunks[options.ichunk]
       #'/store/data/Run2017F/SingleElectron/RAW/v1/000/306/459/00000/B6410DA6-C8C5-E711-947F-02163E01A45E.root'
       ),
     secondaryFileNames = cms.untracked.vstring()
@@ -57,16 +92,64 @@ process.configurationMetadata = cms.untracked.PSet(
 ##     splitLevel = cms.untracked.int32(0)
 ## )
 
+process.tracksFromConversions = cms.EDProducer(
+   'TracksFromConversions',
+   src = cms.InputTag('allConversions'),
+   beamspot = cms.InputTag('offlineBeamSpot'),
+   tracks = cms.InputTag('generalTracks'),
+   generalTracksOnly    = cms.bool(True),
+   arbitratedMerged     = cms.bool(False),
+   arbitratedEcalSeeded = cms.bool(False),
+   ecalalgotracks       = cms.bool(False),
+   highPurity           = cms.bool(True),
+   minProb = cms.double(0.6),
+   maxHitsBeforeVtx = cms.uint32(1),
+   minLxy = cms.double(-9999.9),
+   minVtxR = cms.double(1.8),
+   maxVtxR = cms.double(3.5),
+   minLeadPt = cms.double(15),
+)
+process.reconstruction *= process.tracksFromConversions
+
+process.looseTracksFromConversions = cms.EDProducer(
+   'TracksFromConversions',
+   src = cms.InputTag('allConversions'),
+   beamspot = cms.InputTag('offlineBeamSpot'),
+   tracks = cms.InputTag('generalTracks'),
+   generalTracksOnly    = cms.bool(True),
+   arbitratedMerged     = cms.bool(False),
+   arbitratedEcalSeeded = cms.bool(False),
+   ecalalgotracks       = cms.bool(False),
+   highPurity           = cms.bool(True),
+   minProb = cms.double(-1.),
+   maxHitsBeforeVtx = cms.uint32(999),
+   minLxy = cms.double(-9999.9),
+   minVtxR = cms.double(0.),
+   maxVtxR = cms.double(999.),
+   minLeadPt = cms.double(0.),
+)
+process.reconstruction *= process.looseTracksFromConversions
+
+
 process.ntuples = cms.EDAnalyzer(
    'TrackerDrivenSeedFeatures',
-   filename = cms.string('ntuples.root'),# options.outname),
+   filename = cms.string(options.outname.replace('.root', '_signal.root')),
+   beamspot = cms.InputTag('offlineBeamSpot'),
+   prescale = cms.double(1.)
    )
 for name, val in process.trackerDrivenElectronSeeds.parameters_().iteritems():
    setattr(process.ntuples, name, val)
+process.ntuples.tracks = cms.InputTag('tracksFromConversions', 'electrons')
 process.ntuples.MaxPt = cms.double(10.0)
 process.ntuples.MinPt = cms.double(1.0)
-process.ntuples.tracks = process.ntuples.TkColList[0]
 process.reconstruction *= process.ntuples
+
+process.ntuplesBackground = process.ntuples.clone(
+   filename = cms.string(options.outname.replace('.root', '_background.root')),
+   tracks = cms.InputTag('looseTracksFromConversions', 'NOTelectrons'),
+   prescale = cms.double(0.05),
+)
+process.reconstruction *= process.ntuplesBackground
 
 # Additional output definition
 
@@ -79,11 +162,9 @@ process.GlobalTag = GlobalTag(process.GlobalTag, '94X_dataRun2_ReReco_EOY17_v2',
 process.raw2digi_step = cms.Path(process.RawToDigi)
 process.L1Reco_step = cms.Path(process.L1Reco)
 process.reconstruction_step = cms.Path(process.reconstruction)
-process.endjob_step = cms.EndPath(process.endOfProcess)
-#process.ntuples_step = cms.Path(process.ntuples_seq)
 
 # Schedule definition
-process.schedule = cms.Schedule(process.raw2digi_step,process.L1Reco_step,process.reconstruction_step,process.endjob_step)
+process.schedule = cms.Schedule(process.raw2digi_step,process.L1Reco_step,process.reconstruction_step)
 from PhysicsTools.PatAlgos.tools.helpers import associatePatAlgosToolsTask
 associatePatAlgosToolsTask(process)
 

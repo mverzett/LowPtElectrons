@@ -85,7 +85,9 @@ class TracksFromConversions : public edm::stream::EDProducer<> {
   double minProb_;
   uint maxHitsBeforeVtx_;
   double minLxy_;
-	double minPt_=0;
+  double minVtxR_;
+  double maxVtxR_;
+	double minLeadPt_;
 };
 
 //
@@ -111,7 +113,10 @@ TracksFromConversions::TracksFromConversions(const edm::ParameterSet& cfg):
   highPurity_{cfg.getParameter<bool>("highPurity")},
   minProb_{cfg.getParameter<double>("minProb")},
   maxHitsBeforeVtx_{cfg.getParameter<uint>("maxHitsBeforeVtx")},
-  minLxy_{cfg.getParameter<double>("minLxy")}
+  minLxy_{cfg.getParameter<double>("minLxy")},
+	minVtxR_{cfg.getParameter<double>("minVtxR")},
+  maxVtxR_{cfg.getParameter<double>("maxVtxR")},
+	minLeadPt_{cfg.getParameter<double>("minLeadPt")}
 {
    //register your products
 	produces<reco::TrackRefVector>("electrons");
@@ -151,16 +156,21 @@ TracksFromConversions::produce(edm::Event& iEvent, const edm::EventSetup& iSetup
 
 	 std::set<reco::TrackRef> electrons_set;
 	 
+	 //std::cout << "Starting from " << conversions->size() << " conversions" << std::endl;
+	 size_t passed[4] = {0,0,0,0};
 	 for(auto& conv : *conversions) {
 		 if( arbitratedMerged_ && !conv.quality(reco::Conversion::arbitratedMerged)  ) continue;
 		 if( generalTracksOnly_ && !conv.quality(reco::Conversion::generalTracksOnly) ) continue;
 		 if( arbitratedEcalSeeded_ && !conv.quality(reco::Conversion::arbitratedEcalSeeded)  ) continue;
 		 if( highPurity_ && !conv.quality(reco::Conversion::highPurity) ) continue;
-
+		 
+		 passed[0]++;
 		 const reco::Vertex& vtx = conv.conversionVertex();
 		 if (conv.tracks().size() !=2 || !(vtx.isValid())) continue;
 
 		 if (ChiSquaredProbability( conv.conversionVertex().chi2(),  conv.conversionVertex().ndof() ) <= minProb_) continue;
+		 passed[1]++;
+
 		 if (conv.nHitsBeforeVtx().size()>1 && std::max(conv.nHitsBeforeVtx().at(0), conv.nHitsBeforeVtx().at(1)) > maxHitsBeforeVtx_ ) continue;
 		 
 		 //compute transverse decay length with respect to beamspot
@@ -169,17 +179,31 @@ TracksFromConversions::produce(edm::Event& iEvent, const edm::EventSetup& iSetup
 		 double dbsy = conv.conversionVertex().y() - beamspot->y0();
 		 double lxy = (themom.x()*dbsx + themom.y()*dbsy)/themom.rho();
 		 if (lxy < minLxy_) continue;
-		 
+		 passed[2]++;
+
+		 double vtx_r = std::sqrt(conv.conversionVertex().position().perp2());
+		 if(vtx_r < minVtxR_ || vtx_r > maxVtxR_) continue;
+
 		 //fill set for later
 		 electrons_set.insert(conv.tracks().front().castTo<reco::TrackRef>());
 		 electrons_set.insert(conv.tracks().back( ).castTo<reco::TrackRef>());
 
 		 float lead_pt = (conv.tracks().front()->pt() > conv.tracks().back()->pt()) ? conv.tracks().front()->pt() : conv.tracks().back()->pt();
-		 if(lead_pt < minPt_) continue;
-		 
-		 elecs->push_back(conv.tracks().front().castTo<reco::TrackRef>());
-		 elecs->push_back(conv.tracks().back( ).castTo<reco::TrackRef>());
+		 if(lead_pt < minLeadPt_) continue;
+		 passed[3]++;
+
+		 try {
+			 elecs->push_back(conv.tracks().front().castTo<reco::TrackRef>());
+		 } catch(edm::Exception& e) {
+			 //std::cout << "Invalid reference found" << std::endl;
+		 }
+		 try {
+			 elecs->push_back(conv.tracks().back( ).castTo<reco::TrackRef>());
+		 } catch(edm::Exception& e) {
+			 //std::cout << "Invalid reference found" << std::endl;
+		 }			 
 	 }
+	 //std::cout << "Passed: " << passed[0] << ", " << passed[1] << ", " << passed[2] << ", " << passed[3] << std::endl;
 
 	 for(size_t itrk = 0; itrk < tracks->size(); itrk++) {
 		 reco::TrackRef tkref(tracks, itrk);
