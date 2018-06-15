@@ -25,6 +25,16 @@ options.register('data', 'RAWTest',
     VarParsing.varType.string,
     ""
 )
+options.register('globalTag', '94X_dataRun2_ReReco_EOY17_v2',
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.string,
+    ""
+)
+options.register('isMC', False,
+    VarParsing.multiplicity.singleton,
+    VarParsing.varType.bool,
+    ""
+)
 options.setDefault('maxEvents', -1)
 options.parseArguments()
 
@@ -51,11 +61,26 @@ process.load('SimGeneral.HepPDTESSource.pythiapdt_cfi')
 process.load('FWCore.MessageService.MessageLogger_cfi')
 process.load('Configuration.EventContent.EventContent_cff')
 process.load('Configuration.StandardSequences.GeometryRecoDB_cff')
-process.load('Configuration.StandardSequences.MagneticField_AutoFromDBCurrent_cff')
-process.load('Configuration.StandardSequences.RawToDigi_Data_cff')
 process.load('Configuration.StandardSequences.L1Reco_cff')
-process.load('Configuration.StandardSequences.Reconstruction_Data_cff')
 process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_cff')
+if options.isMC:
+   process.load('SimGeneral.MixingModule.mixNoPU_cfi')
+   process.load('Configuration.StandardSequences.GeometryRecoDB_cff')
+   process.load('Configuration.StandardSequences.MagneticField_cff')
+   process.load('Configuration.StandardSequences.DigiDMPreMix_cff')
+   process.load('SimGeneral.MixingModule.digi_MixPreMix_cfi')
+   process.load('Configuration.StandardSequences.DataMixerPreMix_cff')
+   process.load('Configuration.StandardSequences.SimL1EmulatorDM_cff')
+   process.load('Configuration.StandardSequences.DigiToRawDM_cff')
+   process.load('Configuration.StandardSequences.MagneticField_cff')
+   process.load('Configuration.StandardSequences.RawToDigi_cff')
+   process.load('Configuration.StandardSequences.Reconstruction_cff')
+   process.load('Configuration.StandardSequences.RecoSim_cff')
+   process.load('CommonTools.ParticleFlow.EITopPAG_cff')
+else:
+   process.load('Configuration.StandardSequences.RawToDigi_Data_cff')
+   process.load('Configuration.StandardSequences.Reconstruction_Data_cff')
+   process.load('Configuration.StandardSequences.MagneticField_AutoFromDBCurrent_cff')
 
 process.maxEvents = cms.untracked.PSet(
     input = cms.untracked.int32(options.maxEvents)
@@ -81,54 +106,60 @@ process.configurationMetadata = cms.untracked.PSet(
     version = cms.untracked.string('$Revision: 1.19 $')
 )
 
-## Output definition
-## process.RECOoutput = cms.OutputModule("PoolOutputModule",
-##     dataset = cms.untracked.PSet(
-##         dataTier = cms.untracked.string('RECO'),
-##         filterName = cms.untracked.string('')
-##     ),
-##     fileName = cms.untracked.string('RECOWithDQM_RAW2DIGI_L1Reco_RECO.root'),
-##     outputCommands = process.RECOEventContent.outputCommands,
-##     splitLevel = cms.untracked.int32(0)
-## )
-
-process.tracksFromConversions = cms.EDProducer(
-   'TracksFromConversions',
-   src = cms.InputTag('allConversions'),
-   beamspot = cms.InputTag('offlineBeamSpot'),
-   tracks = cms.InputTag('generalTracks'),
-   generalTracksOnly    = cms.bool(True),
-   arbitratedMerged     = cms.bool(False),
-   arbitratedEcalSeeded = cms.bool(False),
-   ecalalgotracks       = cms.bool(False),
-   highPurity           = cms.bool(True),
-   minProb = cms.double(0.6),
-   maxHitsBeforeVtx = cms.uint32(1),
-   minLxy = cms.double(-9999.9),
-   minVtxR = cms.double(1.8),
-   maxVtxR = cms.double(3.5),
-   minLeadPt = cms.double(15),
-)
-process.reconstruction *= process.tracksFromConversions
-
-process.looseTracksFromConversions = cms.EDProducer(
-   'TracksFromConversions',
-   src = cms.InputTag('allConversions'),
-   beamspot = cms.InputTag('offlineBeamSpot'),
-   tracks = cms.InputTag('generalTracks'),
-   generalTracksOnly    = cms.bool(True),
-   arbitratedMerged     = cms.bool(False),
-   arbitratedEcalSeeded = cms.bool(False),
-   ecalalgotracks       = cms.bool(False),
-   highPurity           = cms.bool(True),
-   minProb = cms.double(-1.),
-   maxHitsBeforeVtx = cms.uint32(999),
-   minLxy = cms.double(-9999.9),
-   minVtxR = cms.double(0.),
-   maxVtxR = cms.double(999.),
-   minLeadPt = cms.double(0.),
-)
-process.reconstruction *= process.looseTracksFromConversions
+process.electronFeatures = cms.Sequence()
+if options.isMC:
+   process.load('SimTracker/TrackAssociation/trackingParticleRecoTrackAsssociation_cfi')
+   #process.reconstruction *= process.simSiPixelDigis
+   process.electronFeatures *= process.tpClusterProducer
+   process.electronFeatures *= process.quickTrackAssociatorByHits
+   process.quickTrackAssociatorByHits.useClusterTPAssociation = False
+   process.electronFeatures *= process.trackingParticleRecoTrackAsssociation
+   process.genElectronTracks = cms.EDProducer(
+      'TracksFromGenParticles',
+      tracks = cms.InputTag('generalTracks'),
+      association = cms.InputTag('trackingParticleRecoTrackAsssociation')
+      )
+   process.electronFeatures *= process.genElectronTracks
+   from SimGeneral.DataMixingModule.customiseForPremixingInput import customiseForPreMixingInput
+   customiseForPreMixingInput(process)
+else:
+   process.tracksFromConversions = cms.EDProducer(
+      'TracksFromConversions',
+      src = cms.InputTag('allConversions'),
+      beamspot = cms.InputTag('offlineBeamSpot'),
+      tracks = cms.InputTag('generalTracks'),
+      generalTracksOnly    = cms.bool(True),
+      arbitratedMerged     = cms.bool(False),
+      arbitratedEcalSeeded = cms.bool(False),
+      ecalalgotracks       = cms.bool(False),
+      highPurity           = cms.bool(True),
+      minProb = cms.double(-1.),
+      maxHitsBeforeVtx = cms.uint32(1),
+      minLxy = cms.double(-9999.9),
+      minVtxR = cms.double(1.5),
+      maxVtxR = cms.double(3.5),
+      minLeadPt = cms.double(0.),
+      )
+   process.electronFeatures *= process.tracksFromConversions
+   
+   process.looseTracksFromConversions = cms.EDProducer(
+      'TracksFromConversions',
+      src = cms.InputTag('allConversions'),
+      beamspot = cms.InputTag('offlineBeamSpot'),
+      tracks = cms.InputTag('generalTracks'),
+      generalTracksOnly    = cms.bool(True),
+      arbitratedMerged     = cms.bool(False),
+      arbitratedEcalSeeded = cms.bool(False),
+      ecalalgotracks       = cms.bool(False),
+      highPurity           = cms.bool(True),
+      minProb = cms.double(-1.),
+      maxHitsBeforeVtx = cms.uint32(999),
+      minLxy = cms.double(-9999.9),
+      minVtxR = cms.double(0.),
+      maxVtxR = cms.double(999.),
+      minLeadPt = cms.double(0.),
+      )
+   process.electronFeatures *= process.looseTracksFromConversions
 
 
 process.ntuples = cms.EDAnalyzer(
@@ -139,32 +170,47 @@ process.ntuples = cms.EDAnalyzer(
    )
 for name, val in process.trackerDrivenElectronSeeds.parameters_().iteritems():
    setattr(process.ntuples, name, val)
-process.ntuples.tracks = cms.InputTag('tracksFromConversions', 'electrons')
+process.ntuples.tracks = cms.InputTag('genElectronTracks') \
+   if options.isMC else \
+   cms.InputTag('tracksFromConversions', 'electrons')
 process.ntuples.MaxPt = cms.double(10.0)
 process.ntuples.MinPt = cms.double(1.0)
-process.reconstruction *= process.ntuples
+process.electronFeatures *= process.ntuples
 
-process.ntuplesBackground = process.ntuples.clone(
-   filename = cms.string(options.outname.replace('.root', '_background.root')),
-   tracks = cms.InputTag('looseTracksFromConversions', 'NOTelectrons'),
-   prescale = cms.double(0.05),
-)
-process.reconstruction *= process.ntuplesBackground
+if not options.isMC:
+   process.ntuplesBackground = process.ntuples.clone(
+      filename = cms.string(options.outname.replace('.root', '_background.root')),
+      tracks = cms.InputTag('looseTracksFromConversions', 'NOTelectrons'),
+      prescale = cms.double(0.05),
+      )
+   process.electronFeatures *= process.ntuplesBackground
 
 # Additional output definition
 
 # Other statements
 from Configuration.AlCa.GlobalTag import GlobalTag
-process.GlobalTag = GlobalTag(process.GlobalTag, '94X_dataRun2_ReReco_EOY17_v2', '')
+process.GlobalTag = GlobalTag(process.GlobalTag, options.globalTag, '')
 #'94X_dataRun2_PromptLike_v9', '')
 
 # Path and EndPath definitions
 process.raw2digi_step = cms.Path(process.RawToDigi)
-process.L1Reco_step = cms.Path(process.L1Reco)
 process.reconstruction_step = cms.Path(process.reconstruction)
+if options.isMC:
+   #process.electronsFeatsMC = cms.Path(process.electronFeatures)
+   ## for name in process.electronFeatures.moduleNames():
+   ##    process.recosim.add(getattr(process, name))
+   process.recosim_step = cms.Path(process.recosim)
+   process.reconstruction_step *= process.electronFeatures
+   process.eventinterpretaion_step = cms.Path(process.EIsequence)
+   process.schedule = cms.Schedule(
+      process.raw2digi_step, process.reconstruction_step, 
+      process.recosim_step, process.eventinterpretaion_step
+      )
+else:
+   process.reconstruction *= process.electronFeatures
+   process.L1Reco_step = cms.Path(process.L1Reco)
+   process.schedule = cms.Schedule(process.raw2digi_step,process.L1Reco_step,process.reconstruction_step)
 
-# Schedule definition
-process.schedule = cms.Schedule(process.raw2digi_step,process.L1Reco_step,process.reconstruction_step)
 from PhysicsTools.PatAlgos.tools.helpers import associatePatAlgosToolsTask
 associatePatAlgosToolsTask(process)
 
@@ -189,6 +235,8 @@ process = customiseEarlyDelete(process)
 # End adding early deletion
 process.MessageLogger.cerr.FwkReport.reportEvery = 1
 process.options   = cms.untracked.PSet(
-      wantSummary = cms.untracked.bool(False), #True),
+      wantSummary = cms.untracked.bool(False),
       #SkipEvent = cms.untracked.vstring('ProductNotFound'),
 )
+
+open('pydump.py','w').write(process.dumpPython())

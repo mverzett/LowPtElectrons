@@ -12,6 +12,7 @@
 <use name="DataFormats/EgammaCandidates"/>
 <use name="DataFormats/Common"/>
 <use name="DataFormats/HLTReco"/>
+<use name="DataFormats/HepMCCandidate"/>
 <use name="DataFormats/ParticleFlowReco"/>
 <use name="TrackingTools/PatternTools"/>
 <use name="RecoParticleFlow/PFTracking"/>

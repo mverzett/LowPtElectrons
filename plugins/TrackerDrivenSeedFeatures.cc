@@ -71,6 +71,10 @@ public:
 	}
 
 	struct Features { 
+		unsigned int lumi = 0;
+		unsigned int run = 0;
+		unsigned long long evt = 0;
+
 		float nhits = -1;
 		int ibin = -1;
 		int high_purity = 0;
@@ -99,6 +103,10 @@ public:
 		float gsf_chi2red = -1.;
 		
 		void reset() {
+			lumi = 0;
+			run = 0;
+			evt = 0;
+
 			nhits = -1;
 			ibin = -1;
 			high_purity = 0;
@@ -223,6 +231,9 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
 
 	//book branches
 	//tree_->Branch("run",  &b_run_, "run/i");
+	tree_->Branch("run",  &trk_features_.run, "run/i");
+  tree_->Branch("lumi", &trk_features_.lumi, "lumi/i");
+  tree_->Branch("evt",  &trk_features_.evt, "evt/i");
 
 	tree_->Branch("nhits",					&trk_features_.nhits         , "nhits/f");
 	tree_->Branch("ibin", 					&trk_features_.ibin         , "ibin/I");
@@ -294,7 +305,6 @@ TrackerDrivenSeedFeatures::TrackerDrivenSeedFeatures(const ParameterSet& iConfig
 void
 TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup)
 {
-	trk_features_.reset();
   LogDebug("TrackerDrivenSeedFeatures")<<"START event: "<<iEvent.id().event()
 															<<" in run "<<iEvent.id().run();
 
@@ -341,7 +351,11 @@ TrackerDrivenSeedFeatures::analyze(const Event& iEvent, const EventSetup& iSetup
 	//loop over the track collection
 	//cout << "Starting from " << tkRefCollection->size() << " tracks! " << endl;
 	for(const auto& trackRef : *tkRefCollection) {
+		trk_features_.reset();
       
+		trk_features_.run  = iEvent.id().run();
+		trk_features_.lumi = iEvent.id().luminosityBlock();
+		trk_features_.evt  = iEvent.id().event();
 		//const TrackRef& trackRef = tkRefCollection.at(i);
 		//Trajectory const * trajectory = &(*trajectories)[i];
 

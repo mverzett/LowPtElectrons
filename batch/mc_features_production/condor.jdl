@@ -1,0 +1,11 @@
+
+Should_Transfer_Files = YES
+WhenToTransferOutput = ON_EXIT
+getenv = True
+executable = /afs/cern.ch/work/m/mverzett/RK94New/src/CMGTools/LowPtElectrons/batch/data_features_production/batch.sh
++JobFlavour = "tomorrow"
+Output = con_df_$(ProcId).out
+Error = con_df_$(ProcId).err
+Log = con_df_$(ProcId).log
+Arguments = ichunk=$(ProcId) data=RAWMC nchunks=300 outname=mc_features_$(ProcId).root
+Queue 300
