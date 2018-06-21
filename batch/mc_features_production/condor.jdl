@@ -4,6 +4,7 @@ WhenToTransferOutput = ON_EXIT
 getenv = True
 executable = /afs/cern.ch/work/m/mverzett/RK94New/src/CMGTools/LowPtElectrons/batch/data_features_production/batch.sh
 +JobFlavour = "tomorrow"
++AccountingGroup = "group_u_CMST3.all"
 Output = con_df_$(ProcId).out
 Error = con_df_$(ProcId).err
 Log = con_df_$(ProcId).log

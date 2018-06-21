@@ -95,7 +95,8 @@ TracksFromGenParticles::TracksFromGenParticles(const edm::ParameterSet& cfg):
 	association_{consumes< reco::RecoToSimCollection >(cfg.getParameter<edm::InputTag>("association"))}
 {
    //register your products
-	produces<reco::TrackRefVector>();
+	produces<reco::TrackRefVector>("electrons");
+	produces<reco::TrackRefVector>("NOTelectrons");
 }
 
 
@@ -117,7 +118,8 @@ void
 TracksFromGenParticles::produce(edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
    using namespace edm;
-	 std::unique_ptr<reco::TrackRefVector> elecs(    new reco::TrackRefVector()); 
+	 std::unique_ptr<reco::TrackRefVector> elecs(new reco::TrackRefVector()); 
+	 std::unique_ptr<reco::TrackRefVector> not_elecs(new reco::TrackRefVector()); 
 
 	 edm::Handle< edm::View<reco::Track> > tracks;
 	 iEvent.getByToken(tracks_, tracks);
@@ -132,11 +134,14 @@ TracksFromGenParticles::produce(edm::Event& iEvent, const edm::EventSetup& iSetu
 			 auto tracking_particle = match->val.front().first;
 			 if(std::abs(tracking_particle->pdgId()) == 11) {
 				 elecs->push_back(key.castTo<reco::TrackRef>());
+			 } else {
+				 not_elecs->push_back(key.castTo<reco::TrackRef>());
 			 }
 		 }
 	 }
 
-	 iEvent.put(std::move(elecs));
+	 iEvent.put(std::move(elecs)    , "electrons");
+	 iEvent.put(std::move(not_elecs), "NOTelectrons");
 }
 
 // ------------ method called once each stream before processing any runs, lumis or events  ------------

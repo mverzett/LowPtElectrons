@@ -170,20 +170,21 @@ process.ntuples = cms.EDAnalyzer(
    )
 for name, val in process.trackerDrivenElectronSeeds.parameters_().iteritems():
    setattr(process.ntuples, name, val)
-process.ntuples.tracks = cms.InputTag('genElectronTracks') \
+process.ntuples.tracks = cms.InputTag('genElectronTracks', 'electrons') \
    if options.isMC else \
    cms.InputTag('tracksFromConversions', 'electrons')
 process.ntuples.MaxPt = cms.double(10.0)
 process.ntuples.MinPt = cms.double(1.0)
 process.electronFeatures *= process.ntuples
 
-if not options.isMC:
-   process.ntuplesBackground = process.ntuples.clone(
-      filename = cms.string(options.outname.replace('.root', '_background.root')),
-      tracks = cms.InputTag('looseTracksFromConversions', 'NOTelectrons'),
-      prescale = cms.double(0.05),
-      )
-   process.electronFeatures *= process.ntuplesBackground
+process.ntuplesBackground = process.ntuples.clone(
+   filename = cms.string(options.outname.replace('.root', '_background.root')),
+   tracks = cms.InputTag('genElectronTracks', 'NOTelectrons') \
+      if options.isMC else \
+      cms.InputTag('looseTracksFromConversions', 'NOTelectrons'),
+   prescale = cms.double(0.05),
+   )
+process.electronFeatures *= process.ntuplesBackground
 
 # Additional output definition
 
@@ -233,7 +234,7 @@ process = customiseLogErrorHarvesterUsingOutputCommands(process)
 from Configuration.StandardSequences.earlyDeleteSettings_cff import customiseEarlyDelete
 process = customiseEarlyDelete(process)
 # End adding early deletion
-process.MessageLogger.cerr.FwkReport.reportEvery = 1
+process.MessageLogger.cerr.FwkReport.reportEvery = 200
 process.options   = cms.untracked.PSet(
       wantSummary = cms.untracked.bool(False),
       #SkipEvent = cms.untracked.vstring('ProductNotFound'),
